@@ -1,0 +1,55 @@
+name: build-exe
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+
+      # 版番号とビルド日をアプリに埋め込む（手で上げ忘れない）
+      - name: Generate build info
+        run: |
+          $built = (Get-Date -Format 'yyyy-MM-dd HH:mm')
+          "VERSION = 'v0.1.${{ github.run_number }}'" | Out-File build_info.py -Encoding utf8
+          "BUILT_AT = '$built'" | Out-File build_info.py -Encoding utf8 -Append
+
+      - name: Build exe
+        run: pyinstaller --onefile --windowed --name hello-app app.py
+
+      - name: Verify artifact
+        run: |
+          $f = Get-Item dist/hello-app.exe
+          Write-Host "hello-app.exe: $($f.Length) bytes"
+          if ($f.Length -lt 1MB) { throw "exe が小さすぎます。ビルドが失敗している可能性があります" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hello-app-exe
+          path: dist/hello-app.exe
+
+      - name: Publish to Releases
+        run: >
+          gh release create v0.1.${{ github.run_number }}
+          dist/hello-app.exe
+          --title "hello-app v0.1.${{ github.run_number }}"
+          --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
